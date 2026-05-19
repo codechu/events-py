@@ -66,8 +66,8 @@ def test_subscriber_limit():
     bus.max_subscribers = 3
     try:
         s1 = events.subscribe()
-        s2 = events.subscribe()
-        s3 = events.subscribe()
+        _s2 = events.subscribe()
+        _s3 = events.subscribe()
         with pytest.raises(events.SubscriberLimitExceeded):
             events.subscribe()
         events.unsubscribe(s1)
@@ -92,8 +92,8 @@ def test_backpressure_drops_when_queue_full():
 
 
 def test_stats_reports_subscribers():
-    s1 = events.subscribe(["scan.*"])
-    s2 = events.subscribe(["*"])
+    _s1 = events.subscribe(["scan.*"])
+    _s2 = events.subscribe(["*"])
     events.emit("scan.started")
     events.emit("mount.changed")
 
