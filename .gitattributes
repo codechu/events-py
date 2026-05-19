@@ -1,0 +1,14 @@
+# Otomatik LF normalize: tüm metin dosyaları depo'da LF, checkout'ta OS-default
+* text=auto eol=lf
+
+# Binary — diff/merge yapma
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.db binary
+*.sqlite binary
+
+# Python: linguist-language
+*.py linguist-language=Python

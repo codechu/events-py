@@ -1,7 +1,11 @@
 # CLAUDE.md — codechu-events
 
-Bootstrap per [`codechu-org/ai/AGENTS.md`](https://github.com/codechu/codechu-org/blob/main/ai/AGENTS.md) §0 before any
-work. This file lists only product-local overrides.
+Bootstrap per `codechu-org/ai/AGENTS.md` §0 before any work. Prefer
+the local clone at `$org_home/codechu-org/ai/AGENTS.md` (if
+`~/.config/codechu/config.toml` has `org_home` set); otherwise
+WebFetch the public raw URL
+<https://raw.githubusercontent.com/codechu/codechu-org/main/ai/AGENTS.md>.
+This file lists only product-local overrides.
 
 ## Product-local notes
 
