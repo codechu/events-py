@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codechu-events"
-version = "0.1.0"
+version = "0.2.0"
 description = "Thread-safe multi-channel event bus with glob filtering, backpressure, and sync/async iteration."
 readme = "README.md"
 license = { file = "LICENSE" }
