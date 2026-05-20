@@ -63,3 +63,20 @@ extend it without a discussion first.
 
 If you find a security issue, see [SECURITY.md](SECURITY.md) — do not
 open a public issue for it.
+
+## Developer Certificate of Origin (DCO)
+
+Every commit must be signed off with the [DCO](https://developercertificate.org/).
+The sign-off certifies that you wrote the patch, or otherwise have the
+right to submit it under the project's license. Add a line to your
+commit message:
+
+```
+Signed-off-by: Your Name <you@example.com>
+```
+
+`git commit -s` does this automatically. PRs without sign-off will
+be asked to amend before merge.
+
+Contributions are accepted under the project's license (see
+[LICENSE](LICENSE)).
