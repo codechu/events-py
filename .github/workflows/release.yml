@@ -9,20 +9,16 @@ jobs:
   publish:
     runs-on: ubuntu-latest
     permissions:
+      id-token: write
       contents: read
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install build + twine
-        run: pip install --upgrade build twine
+      - name: Install build
+        run: pip install --upgrade build
       - name: Build sdist + wheel
         run: python -m build
-      - name: Validate metadata
-        run: python -m twine check dist/*
-      - name: Upload to PyPI
-        env:
-          TWINE_USERNAME: __token__
-          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
-        run: python -m twine upload dist/*
+      - name: Publish to PyPI (OIDC / Trusted Publisher)
+        uses: pypa/gh-action-pypi-publish@release/v1
