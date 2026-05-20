@@ -43,15 +43,15 @@ A useful bug report includes:
   align producers/consumers).
 - Don't introduce sleeps for synchronization — use queues, events,
   or barriers. A flaky test is a broken test.
-- Prefer fresh `Bus()` instances over the module-level default in
-  tests, so suites stay independent.
+- Each test constructs its own `Bus()` — there is no shared
+  module-level state to reset.
 
 ## Public API discipline
 
-The public surface is `Bus`, `default_bus()`, the module-level shims
-(`subscribe`, `subscribe_ctx`, `emit`, `stats`), and `Subscription`.
-Everything else is internal — please don't extend it without a
-discussion first.
+The public surface is `Bus`, `Subscription`, `SubscriberLimitExceeded`,
+and the constants `QUEUE_MAX`, `MAX_SUBSCRIBERS`,
+`DEFAULT_HEARTBEAT_SEC`. Everything else is internal — please don't
+extend it without a discussion first.
 
 ## Style
 

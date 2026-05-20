@@ -18,10 +18,8 @@ class Bus:
 
     Multiple buses can coexist in a process — useful for isolating
     domains (e.g. UI bus + telemetry bus) or for test fixtures where
-    each test wants its own clean state.
-
-    The module-level functions (``subscribe``, ``emit``, ...) operate on
-    a single global default bus — convenient for simple programs.
+    each test wants its own clean state. Callers construct a :class:`Bus`
+    explicitly; there is no module-level default.
 
     Args:
         max_subscribers: per-bus subscriber limit (default 64)

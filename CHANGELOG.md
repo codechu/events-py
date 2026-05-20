@@ -9,14 +9,18 @@
 ### Changed
 - Split the 418-line `__init__.py` god module into focused submodules:
   `subscription.py` (Subscription + queue/iter helpers), `bus.py` (Bus),
-  `_exceptions.py` (private exception types), `_testing.py` (private —
-  `reset_for_tests`, lazy `default_bus`). The package root re-exports
-  the full public API, so `from codechu_events import Bus, Subscription,
-  emit, ...` continues to work unchanged.
-- Default bus is now lazily constructed on first access via
-  `default_bus()`.
+  `_exceptions.py` (private exception types). The package root
+  re-exports the narrowed public API.
 - Docstrings converted from Turkish to English throughout.
 - Added `__version__` attribute on the package.
+
+### Removed (BREAKING)
+- Module-level singletons and implicit defaults are gone. The
+  `default_bus()`, `reset_for_tests`, and the module-level shim
+  functions (`subscribe`, `unsubscribe`, `subscribe_ctx`, `emit`,
+  `stats`, `subscriber_count`) have been removed. Callers must now
+  construct their own `Bus()` and call methods on it. The new
+  ergonomic entry point is `bus.subscribe_ctx(...)`.
 
 ## [0.1.0] — 2026-05-19
 

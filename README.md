@@ -12,30 +12,30 @@ pip install codechu-events
 - **Thread-safe** — emit from any thread, never blocks
 - **Bounded queues** per subscriber — slow consumers drop events, fast publishers never wait
 - **Sync + async iteration** — `for ev in sub:` or `async for ev in sub.aiter():`
-- **Context manager** for clean unsubscribe: `with subscribe_ctx([...]) as sub:`
+- **Context manager** for clean unsubscribe: `with bus.subscribe_ctx([...]) as sub:`
 - **Heartbeat** support for dead-connection detection on idle channels
 - **Resource limits** — max subscribers + max queue depth, bounded by design
 - **Stats** for monitoring (subscriber count, drop count, queue depth)
 
 ## Quick examples
 
-### Default global bus (simple programs)
+### Basic usage
+
+Construct a `Bus()` explicitly — there is no module-level default, so
+ownership and lifetime stay in the caller's hands.
 
 ```python
-import codechu_events as events
+from codechu_events import Bus
 
-# Subscriber (sync iteration)
-def consume():
-    with events.subscribe_ctx(["scan.*", "ui.click"]) as sub:
-        for ev in sub:
-            print(ev["event"], ev)
+bus = Bus()
 
-# Publisher (any thread, never blocks)
-events.emit("scan.started", path="/home")
-events.emit("scan.progress", count=42)
-events.emit("scan.finished", count=128, ok=True)
-events.emit("ui.click", button="cancel")     # also delivered
-events.emit("foo.bar")                        # filtered out
+with bus.subscribe_ctx(["scan.*"]) as sub:
+    bus.emit("scan.started", path="/home")
+    bus.emit("scan.progress", count=42)
+    bus.emit("scan.finished", count=128, ok=True)
+    bus.emit("foo.bar")  # filtered out
+    for ev in sub:
+        print(ev["event"], ev)
 ```
 
 ### Multiple isolated buses
@@ -81,10 +81,13 @@ bus.emit("scan.started", panel="treemap")      # rejected
 ### Async iteration
 
 ```python
-import asyncio, codechu_events as events
+import asyncio
+from codechu_events import Bus
+
+bus = Bus()
 
 async def consume():
-    with events.subscribe_ctx(["scan.*"], heartbeat_sec=5.0) as sub:
+    with bus.subscribe_ctx(["scan.*"], heartbeat_sec=5.0) as sub:
         async for ev in sub.aiter():
             print(ev)
 
@@ -93,14 +96,20 @@ asyncio.run(consume())
 
 ## API reference
 
-| Function | Purpose |
-|---|---|
-| `emit(event_type, **fields)` | Publish event. Never blocks. |
-| `subscribe(types=["*"], heartbeat_sec=5.0)` | Create a Subscription. Caller must `unsubscribe()`. |
-| `subscribe_ctx(types, heartbeat_sec=5.0)` | Same as `subscribe()`, but a context manager (auto-unsubscribe). |
-| `stats()` | Returns dict with subscriber count, total emitted, drop counts. |
+### `Bus`
 
-### `Subscription` API
+| Method | Purpose |
+|---|---|
+| `Bus(max_subscribers=64, queue_max=200)` | Construct an independent bus. |
+| `bus.emit(event_type, **fields)` | Publish event. Never blocks. |
+| `bus.subscribe(types=["*"], heartbeat_sec=5.0)` | Create a Subscription. Caller must `unsubscribe()`. |
+| `bus.subscribe_ctx(types, heartbeat_sec=5.0)` | Context manager (auto-unsubscribe on exit). |
+| `bus.unsubscribe(sub)` | Idempotent removal + `sub.close()`. |
+| `bus.stats()` | Dict with subscriber count, total emitted, drop counts. |
+| `bus.subscriber_count()` | Active subscription count. |
+| `bus.reset()` | Close all subscriptions and zero counters. |
+
+### `Subscription`
 
 | Member | Purpose |
 |---|---|

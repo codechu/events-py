@@ -11,12 +11,12 @@ This file lists only product-local overrides.
 
 - Pure-Python, no GTK / no I/O. Tests in `tests/` must keep that
   invariant — do not introduce framework dependencies.
-- Public API surface: `Bus`, `default_bus()`, module-level shims
-  (`subscribe`, `publish`, etc.), `Subscription`. Anything else is
-  internal.
-- `Bus.max_subscribers` is configurable per-instance; the
-  module-level default is for backwards compatibility — do not
-  monkey-patch it in tests.
+- Public API surface: `Bus`, `Subscription`, `SubscriberLimitExceeded`,
+  and the constants `QUEUE_MAX`, `MAX_SUBSCRIBERS`,
+  `DEFAULT_HEARTBEAT_SEC`. No module-level singletons, no implicit
+  default bus — callers construct their own `Bus()`.
+- `Bus.max_subscribers` is configurable per-instance — pass it to the
+  constructor in tests rather than mutating a shared instance.
 - Coverage target: ≥85 %. Current ~92 %.
 
 ## Discipline reminders (org rules apply)
