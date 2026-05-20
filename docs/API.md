@@ -1,4 +1,4 @@
-# API reference — codechu-events 0.2.0
+# API reference — codechu-events 0.3.0
 
 Every public symbol exported from `codechu_events`. Import path:
 
@@ -24,18 +24,19 @@ construct a `Bus()` and own its lifetime.
 Thread-safe multi-channel pub/sub bus. Multiple `Bus` instances coexist
 in a process; each has its own subscriber list, counters and locks.
 
-### `Bus(*, max_subscribers=MAX_SUBSCRIBERS, queue_max=QUEUE_MAX)`
+### `Bus(*, max_subscribers=MAX_SUBSCRIBERS, queue_max=QUEUE_MAX, replay_size=0)`
 
 Construct an independent bus.
 
 | Parameter | Type | Default | Purpose |
 |---|---|---|---|
 | `max_subscribers` | `int` | `64` | Per-bus subscriber cap. Exceeding raises `SubscriberLimitExceeded`. |
-| `queue_max` | `int` | `200` | Per-subscription queue depth ceiling (informational; the queue itself is sized from the module-level `QUEUE_MAX` constant). |
+| `queue_max` | `int` | `200` | Per-subscription queue depth. Each subscription's bounded queue is sized to this value. (Changed in 0.3.0: previously this argument was accepted but ignored.) |
+| `replay_size` | `int` | `0` | Ring-buffer length for the recent-event history. `0` disables it. When `> 0`, the bus retains the last N emitted events and consumers may request them via `subscribe(..., replay=True)`. |
 
-Both arguments are keyword-only.
+All arguments are keyword-only.
 
-### `bus.subscribe(types=None, *, heartbeat_sec=DEFAULT_HEARTBEAT_SEC, subscription_class=Subscription) -> Subscription`
+### `bus.subscribe(types=None, *, heartbeat_sec=DEFAULT_HEARTBEAT_SEC, subscription_class=Subscription, filter=None, replay=False) -> Subscription`
 
 Create a new subscription on this bus.
 
@@ -44,15 +45,17 @@ Create a new subscription on this bus.
 | `types` | `list[str] \| None` | `None` → `["*"]` | Glob channel filter list. See [Channel glob syntax](#channel-glob-syntax). |
 | `heartbeat_sec` | `float` | `5.0` | Idle keepalive interval. `0` disables it. |
 | `subscription_class` | `type[Subscription]` | `Subscription` | Override to plug in a custom subclass (e.g. field-based filter). |
+| `filter` | `Callable[[dict], bool] \| None` | `None` | Optional predicate applied after the glob match. Events the predicate rejects are dropped and counted in `sub.filtered` (separate from queue-full `sub.dropped`). A filter that raises is treated as a rejection. |
+| `replay` | `bool` | `False` | If `True` and the bus was constructed with `replay_size > 0`, all matching buffered events are delivered to this subscription **ahead of live events** and **outside** the queue's backpressure path — they ride a separate replay list and are yielded first by `iter()` / `aiter()`. |
 
 Raises `SubscriberLimitExceeded` if the bus is at its cap. The caller
 must eventually call `bus.unsubscribe(sub)` — prefer `subscribe_ctx`
 for automatic cleanup.
 
-### `bus.subscribe_ctx(types=None, *, heartbeat_sec=DEFAULT_HEARTBEAT_SEC, subscription_class=Subscription)`
+### `bus.subscribe_ctx(types=None, *, heartbeat_sec=DEFAULT_HEARTBEAT_SEC, subscription_class=Subscription, filter=None, replay=False)`
 
-Context manager wrapping `subscribe`. The subscription is removed and
-closed on exit, including on exceptions:
+Context manager wrapping `subscribe` (same kwargs). The subscription is
+removed and closed on exit, including on exceptions:
 
 ```python
 with bus.subscribe_ctx(["scan.*"]) as sub:
@@ -91,6 +94,8 @@ Snapshot for monitoring/debug:
     "subscribers": 3,
     "max_subscribers": 64,
     "total_emitted": 1284,
+    "replay_size": 0,
+    "replay_buffered": 0,
     "details": [
         {
             "types": ["scan.*"],
@@ -98,6 +103,7 @@ Snapshot for monitoring/debug:
             "queue_max": 200,
             "received": 412,
             "dropped": 0,
+            "filtered": 0,
             "age_sec": 12.4,
         },
         ...
@@ -133,7 +139,9 @@ directly.
 |---|---|---|
 | `types` | `list[str]` | Active glob patterns. Mutable, but consider this advanced use. |
 | `queue` | `queue.Queue` | Underlying FIFO. Inspect `qsize()` for depth. |
-| `dropped` | `int` | Events rejected because the queue was full. |
+| `queue_max` | `int` | Capacity of `queue` (mirrors `Bus(queue_max=…)`). |
+| `dropped` | `int` | Events rejected because the queue was full (backpressure). |
+| `filtered` | `int` | Events rejected by the user-supplied `filter` callback. Distinct from `dropped`. |
 | `received` | `int` | Events successfully enqueued. |
 | `created_at` | `float` | `time.time()` at construction. |
 | `heartbeat_sec` | `float` | Idle keepalive interval. |
@@ -149,8 +157,28 @@ payload fields.
 
 ### `sub.push(event) -> None`
 
-Called by `Bus.emit`; not part of the user-facing surface. Non-blocking:
-drops on full queue and bumps `sub.dropped`.
+Called by `Bus.emit`; not part of the user-facing surface. Non-blocking.
+Order of checks:
+
+1. If a user-supplied `filter` callback was provided and rejects the
+   event (or raises), `sub.filtered` increments and the event is dropped.
+2. Otherwise, `put_nowait` into the bounded queue. On `queue.Full`,
+   `sub.dropped` increments. `sub.received` counts successful enqueues.
+
+### Replay events
+
+When the subscription was created with `replay=True` on a bus with
+`replay_size > 0`, the matching past events are buffered on the
+subscription at construction time and delivered by `iter()` / `aiter()`
+**before** any live event is read from the queue. Replay events:
+
+- bypass the bounded queue and its `dropped` accounting,
+- still honor the subscription's glob `matches()` and `filter` predicate
+  (so a replay event the filter rejects is not delivered, but it is
+  not counted in `filtered` either — filter accounting is a
+  live-publish concern),
+- are consumed once: a second pass over the iterator (after `close()`)
+  will not re-deliver them.
 
 ### `sub.close() -> None`
 
@@ -207,7 +235,7 @@ bus is at its `max_subscribers` cap.
 | `MAX_SUBSCRIBERS` | `64` | Default per-bus subscriber cap. Override per-instance via `Bus(max_subscribers=...)`. |
 | `QUEUE_MAX` | `200` | Per-subscription queue depth. |
 | `DEFAULT_HEARTBEAT_SEC` | `5.0` | Default idle keepalive interval. `0` disables. |
-| `__version__` | `"0.2.0"` | Package version string. |
+| `__version__` | `"0.3.0"` | Package version string. |
 
 ---
 

@@ -214,3 +214,103 @@ Tips:
 - If you want to assert on `bus.stats()` directly, do it before
   exiting the `subscribe_ctx` block — `unsubscribe` removes the
   subscription from the details list.
+
+---
+
+## 7. Late-subscriber replay — subscribe with full history
+
+Some consumers care about events that already happened: a debug panel
+opening mid-scan, an SSE reconnect that needs to catch up, a test
+asserting on the full event trace without racing the producer.
+Construct the bus with `replay_size=N` to keep the last N events, and
+pass `replay=True` to `subscribe()` to receive them:
+
+```python
+from codechu_events import Bus
+
+bus = Bus(replay_size=100)
+
+# Producer side fires events early — nobody is listening yet.
+bus.emit("scan.started", path="/home")
+bus.emit("scan.progress", path="/home", pct=42)
+bus.emit("scan.progress", path="/home", pct=87)
+
+# Late subscriber: catch up on history, then keep streaming.
+with bus.subscribe_ctx(["scan.*"], heartbeat_sec=0, replay=True) as sub:
+    bus.emit("scan.finished", path="/home", ok=True)
+    sub.close()
+    for ev in sub:
+        print(ev["event"], ev.get("pct"))
+    # → scan.started None
+    # → scan.progress 42
+    # → scan.progress 87
+    # → scan.finished None
+```
+
+Notes:
+
+- Replay events are delivered **ahead of live events** and ride a
+  separate buffer on the subscription, so they bypass the bounded
+  queue's backpressure — even with `Bus(queue_max=5)` you can replay
+  20 buffered events. `sub.dropped` is not incremented on the replay
+  path.
+- The replay buffer is a ring: with `replay_size=100`, only the last
+  100 emitted events are retained, regardless of who is listening.
+- Replay still honors the subscription's glob filter and any
+  `filter=` predicate. A subscription with `["scan.*"]` will not
+  receive replayed `ui.click` events.
+- `replay=True` without `replay_size > 0` is a no-op (nothing
+  buffered). Set `replay_size` at bus construction.
+
+---
+
+## 8. Filter events with a caller-supplied predicate
+
+The glob filter on `subscribe()` matches on event **type**. When you
+also need to gate on event **payload** — say, "only `task.update`
+events for task #42" — pass a `filter` callable. Glob match runs
+first; the callable runs only on glob-accepted events; rejections are
+counted separately from queue-full drops.
+
+```python
+from codechu_events import Bus
+
+bus = Bus()
+
+# Only deliver task.update events that concern our task.
+target_id = 42
+sub = bus.subscribe(
+    ["task.update"],
+    heartbeat_sec=0,
+    filter=lambda ev: ev.get("task_id") == target_id,
+)
+
+bus.emit("task.update", task_id=42, status="running")
+bus.emit("task.update", task_id=7,  status="running")  # filtered out
+bus.emit("task.update", task_id=42, status="done")
+
+sub.close()
+for ev in sub:
+    print(ev["task_id"], ev["status"])
+# → 42 running
+# → 42 done
+
+print("filtered:", sub.filtered)  # 1
+print("dropped (queue full):", sub.dropped)  # 0
+```
+
+Notes:
+
+- `filter` runs in the publisher's thread, after the lock is dropped
+  but before the queue put. Keep it cheap and side-effect-free.
+- A `filter` that raises is treated as a rejection (the event is
+  silently dropped and `filtered` increments). Use this defensively if
+  events may not always carry the field you key on.
+- For filters that depend on whole-object state (regex over field
+  names, structural pattern matching), prefer this kwarg over
+  subclassing `Subscription` — you keep the predicate close to the
+  subscribe site and avoid a class-per-filter explosion. Subclassing
+  `Subscription` (via `subscription_class=`) is still the right tool
+  for filter logic you want to reuse across many subscribe sites, or
+  when the same class needs to override other hooks (`matches`,
+  `push`).

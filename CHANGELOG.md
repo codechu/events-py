@@ -4,6 +4,31 @@
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-05-20
+
+### Added
+- `Bus(replay_size=N)` — optional ring buffer of the last N emitted
+  events. New subscribers may request the buffered history via
+  `bus.subscribe(..., replay=True)`; replayed events are delivered
+  ahead of live events and bypass per-subscription queue backpressure
+  (they ride a separate replay list, not the bounded queue).
+- `Bus.subscribe(..., filter=callable)` — user-supplied predicate
+  applied after the glob match. Rejected events increment the new
+  `Subscription.filtered` counter (distinct from queue-full
+  `Subscription.dropped`). A filter that raises is treated as a
+  rejection.
+- `Subscription.filtered` and `Subscription.queue_max` attributes;
+  both surfaced via `Bus.stats()`.
+- `Bus.stats()` now also reports `replay_size` and `replay_buffered`.
+
+### Fixed
+- `Bus(queue_max=N)` is now actually honored. In v0.2 the kwarg was
+  accepted but every subscription's queue was still sized from the
+  module-level `QUEUE_MAX` constant. The value is now threaded into
+  each subscription's bounded queue. Backwards-compatible if you
+  never relied on the broken behavior; see
+  [`docs/MIGRATION.md`](docs/MIGRATION.md).
+
 ## [0.2.0] — 2026-05-20
 
 ### Changed

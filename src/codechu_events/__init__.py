@@ -50,7 +50,7 @@ from ._exceptions import SubscriberLimitExceeded
 from .bus import MAX_SUBSCRIBERS, Bus
 from .subscription import DEFAULT_HEARTBEAT_SEC, QUEUE_MAX, Subscription
 
-__version__ = "0.2.0"
+__version__ = "0.3.0"
 
 __all__ = [
     "Bus",

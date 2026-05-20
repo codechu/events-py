@@ -1,4 +1,50 @@
-# Migration guide — v0.1 → v0.2
+# Migration guide
+
+## v0.2 → v0.3
+
+v0.3 is additive (replay buffer + filter callback) with one
+behavior-change worth flagging.
+
+### `Bus(queue_max=N)` is now actually honored
+
+In v0.2 the `queue_max` constructor kwarg was accepted but ignored —
+every subscription's bounded queue was sized from the module-level
+`QUEUE_MAX` constant (200), regardless of what you passed. In v0.3 the
+value flows through to each `Subscription`'s queue.
+
+This is backwards-compatible if you never relied on the broken
+behavior (the default value is unchanged at 200, and code that
+omitted `queue_max` is unaffected). Two scenarios where you may see a
+difference:
+
+- **You passed `queue_max=N` expecting a smaller queue.** You now get
+  one. If you actually wanted the old 200-deep queue, drop the kwarg
+  or pass `queue_max=200`.
+- **You passed `queue_max=N` expecting a larger queue.** Same: you
+  now get one. Slow consumers that previously fit into the silent
+  200-deep queue may now overflow and bump `sub.dropped`. Tune
+  upward as needed.
+
+`Bus.stats()["details"][i]["queue_max"]` now reports the actual
+per-subscription capacity instead of the global constant.
+
+### Additive: opt-in features
+
+The following are off by default; you only see them if you ask:
+
+- `Bus(replay_size=N)` — recent-event ring buffer (see
+  [`RECIPES.md`](RECIPES.md) §7).
+- `bus.subscribe(..., filter=callable)` — predicate filter beyond
+  the glob (see [`RECIPES.md`](RECIPES.md) §8).
+- `sub.filtered` counter and per-subscription `queue_max` /
+  `filtered` fields in `bus.stats()`.
+
+No imports or method signatures were removed in v0.3; existing v0.2
+code keeps working unchanged.
+
+---
+
+# v0.1 → v0.2
 
 v0.2 removes module-level singletons. The package no longer exports a
 default `Bus`, the module-level shim functions, or the

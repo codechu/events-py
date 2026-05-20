@@ -260,3 +260,139 @@ def test_custom_subscription_with_field_filter():
     assert "scan.started:treemap" not in seen
     assert "scan.started:?" not in seen
     bus.reset()
+
+
+# ── v0.3.0: replay buffer ──────────────────────────────────────────
+
+
+def test_replay_disabled_by_default():
+    """Without ``replay_size``, replay=True is a no-op (no buffered events)."""
+    bus = Bus()
+    bus.emit("scan.started")
+    bus.emit("scan.finished")
+    sub = bus.subscribe(["scan.*"], heartbeat_sec=0, replay=True)
+    sub.close()
+    got = list(sub.iter())
+    assert got == []
+
+
+def test_replay_delivers_past_events():
+    """Late subscriber with replay=True receives full history first."""
+    bus = Bus(replay_size=10)
+    bus.emit("scan.started", i=0)
+    bus.emit("scan.progress", i=1)
+    bus.emit("scan.finished", i=2)
+    sub = bus.subscribe(["scan.*"], heartbeat_sec=0, replay=True)
+    bus.emit("scan.after", i=3)  # live event after subscribe
+    sub.close()
+    got = [e["event"] for e in sub.iter() if not e["event"].startswith("_")]
+    assert got == ["scan.started", "scan.progress", "scan.finished", "scan.after"]
+
+
+def test_replay_ring_buffer_caps_history():
+    """replay_size acts as a ring buffer — only the last N events remain."""
+    bus = Bus(replay_size=3)
+    for i in range(10):
+        bus.emit("x.y", i=i)
+    sub = bus.subscribe(["x.*"], heartbeat_sec=0, replay=True)
+    sub.close()
+    got = [e["i"] for e in sub.iter() if not e["event"].startswith("_")]
+    assert got == [7, 8, 9]
+
+
+def test_replay_respects_glob_filter():
+    """Replayed events still honor the subscription's glob filter."""
+    bus = Bus(replay_size=10)
+    bus.emit("scan.started")
+    bus.emit("ui.click")
+    bus.emit("scan.finished")
+    sub = bus.subscribe(["scan.*"], heartbeat_sec=0, replay=True)
+    sub.close()
+    got = [e["event"] for e in sub.iter() if not e["event"].startswith("_")]
+    assert got == ["scan.started", "scan.finished"]
+
+
+def test_replay_bypasses_queue_backpressure():
+    """Replay events are delivered ahead of the live queue, beyond queue_max."""
+    bus = Bus(queue_max=5, replay_size=20)
+    for i in range(20):
+        bus.emit("x.y", i=i)
+    sub = bus.subscribe(["x.*"], heartbeat_sec=0, replay=True)
+    sub.close()
+    got = [e["i"] for e in sub.iter() if not e["event"].startswith("_")]
+    # All 20 replay events delivered even though queue_max=5.
+    assert got == list(range(20))
+    # Replay path does not touch the queue-full ``dropped`` counter.
+    assert sub.dropped == 0
+
+
+# ── v0.3.0: filter callback ────────────────────────────────────────
+
+
+def test_filter_callback_rejects_events():
+    """Events matching the glob but failing filter are dropped + counted."""
+    bus = Bus()
+    sub = bus.subscribe(
+        ["scan.*"],
+        heartbeat_sec=0,
+        filter=lambda ev: ev.get("panel") == "suggestion",
+    )
+    bus.emit("scan.started", panel="suggestion")
+    bus.emit("scan.started", panel="treemap")
+    bus.emit("scan.started")  # no panel
+    sub.close()
+    got = [e for e in sub.iter() if not e["event"].startswith("_")]
+    assert len(got) == 1
+    assert got[0]["panel"] == "suggestion"
+    assert sub.filtered == 2  # two rejections counted
+    assert sub.dropped == 0    # no queue-full drops
+
+
+def test_filter_callback_exception_treated_as_reject():
+    """A filter that raises is treated as a rejection (event filtered)."""
+    bus = Bus()
+
+    def bad_filter(ev):
+        raise RuntimeError("boom")
+
+    sub = bus.subscribe(["*"], heartbeat_sec=0, filter=bad_filter)
+    bus.emit("x.y")
+    sub.close()
+    got = [e for e in sub.iter() if not e["event"].startswith("_")]
+    assert got == []
+    assert sub.filtered == 1
+
+
+# ── v0.3.0: queue_max bugfix ───────────────────────────────────────
+
+
+def test_queue_max_actually_honored():
+    """Bus(queue_max=N) → the per-subscription queue holds exactly N events."""
+    bus = Bus(queue_max=5)
+    sub = bus.subscribe(["*"], heartbeat_sec=0)
+    assert sub.queue.maxsize == 5
+    assert sub.queue_max == 5
+    for i in range(20):
+        bus.emit("x.y", i=i)
+    assert sub.queue.qsize() == 5
+    assert sub.received == 5
+    assert sub.dropped == 15
+
+
+def test_queue_max_default_unchanged():
+    """Without queue_max kwarg, subscriptions still get the QUEUE_MAX default."""
+    bus = Bus()
+    sub = bus.subscribe()
+    assert sub.queue.maxsize == QUEUE_MAX
+    assert sub.queue_max == QUEUE_MAX
+
+
+def test_stats_reports_per_subscription_queue_max_and_filtered():
+    """stats() reflects the actual queue_max and filtered counter per sub."""
+    bus = Bus(queue_max=7)
+    bus.subscribe(["*"], heartbeat_sec=0, filter=lambda ev: False)
+    bus.emit("x.y")
+    st = bus.stats()
+    assert st["details"][0]["queue_max"] == 7
+    assert st["details"][0]["filtered"] == 1
+

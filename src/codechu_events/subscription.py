@@ -4,9 +4,9 @@ from __future__ import annotations
 import fnmatch
 import queue
 import time
-from typing import Any, AsyncIterator, Iterator
+from typing import Any, AsyncIterator, Callable, Iterator
 
-#: Maximum events held in a single subscription's queue.
+#: Default maximum events held in a single subscription's queue.
 QUEUE_MAX: int = 200
 
 #: Heartbeat interval (seconds) when the sync iterator is idle. 0 disables it.
@@ -16,22 +16,34 @@ DEFAULT_HEARTBEAT_SEC: float = 5.0
 class Subscription:
     """Per-subscriber queue + filter + iter API.
 
-    Do not instantiate directly; use :func:`codechu_events.subscribe` or
-    :func:`codechu_events.subscribe_ctx`.
+    Do not instantiate directly; use :meth:`Bus.subscribe` or
+    :meth:`Bus.subscribe_ctx`.
     """
 
     __slots__ = (
-        "types", "queue", "dropped", "received",
-        "created_at", "heartbeat_sec", "_closed",
+        "types", "queue", "queue_max", "dropped", "filtered", "received",
+        "created_at", "heartbeat_sec", "_filter", "_replay", "_closed",
     )
 
-    def __init__(self, types: list[str], heartbeat_sec: float) -> None:
+    def __init__(
+        self,
+        types: list[str],
+        heartbeat_sec: float,
+        *,
+        queue_max: int = QUEUE_MAX,
+        filter: Callable[[dict[str, Any]], bool] | None = None,
+    ) -> None:
         self.types: list[str] = list(types) if types else ["*"]
-        self.queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=QUEUE_MAX)
-        self.dropped: int = 0  # dropped under backpressure
+        self.queue_max: int = queue_max
+        self.queue: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=queue_max)
+        self.dropped: int = 0  # dropped under backpressure (queue full)
+        self.filtered: int = 0  # rejected by user-supplied filter callback
         self.received: int = 0  # successfully enqueued
         self.created_at: float = time.time()
         self.heartbeat_sec: float = heartbeat_sec
+        self._filter: Callable[[dict[str, Any]], bool] | None = filter
+        # Buffered replay events delivered before live queue is drained.
+        self._replay: list[dict[str, Any]] = []
         self._closed: bool = False
 
     def matches(self, event_type: str, event: dict[str, Any] | None = None) -> bool:
@@ -44,13 +56,30 @@ class Subscription:
         ``event["panel"] == "suggestion"``). The optional ``event`` argument
         lets such overrides inspect the full payload (it is `None` during
         cheap type-only checks, otherwise the full dict).
+
+        The user-supplied ``filter`` callback (passed to
+        :meth:`Bus.subscribe`) is *not* consulted here; it is applied later
+        in :meth:`push` so that filter-rejected events are counted in
+        ``filtered`` rather than dropped silently.
         """
         return any(fnmatch.fnmatchcase(event_type, t) for t in self.types)
 
     def push(self, event: dict[str, Any]) -> None:
-        """Called by the publisher — non-blocking, drops on full queue."""
+        """Called by the publisher — non-blocking, drops on full queue.
+
+        If a user-supplied ``filter`` callback was provided and rejects
+        the event, ``filtered`` is incremented and nothing is enqueued.
+        """
         if self._closed:
             return
+        if self._filter is not None:
+            try:
+                accepted = bool(self._filter(event))
+            except Exception:
+                accepted = False
+            if not accepted:
+                self.filtered += 1
+                return
         try:
             self.queue.put_nowait(event)
             self.received += 1
@@ -75,12 +104,22 @@ class Subscription:
     ) -> Iterator[dict[str, Any]]:
         """Yield events in order.
 
+        Replay events (if any were buffered when this subscription was
+        created with ``replay=True``) are yielded first, ahead of live
+        queue contents and outside the queue's backpressure path.
+
         If ``timeout`` is given, the iterator stops when no event arrives
         within that window. When ``heartbeat=True`` and ``self.heartbeat_sec
         > 0``, a periodic ``_keepalive`` event is emitted on idle queues so
         consumers can detect a dead connection. When :meth:`close` is
         called, the iterator finishes after the queue is drained.
         """
+        # Drain buffered replay events first, before any live event.
+        if self._replay:
+            replay, self._replay = self._replay, []
+            for ev in replay:
+                yield ev
+
         deadline: float | None = None
         if timeout is not None:
             deadline = time.monotonic() + timeout
@@ -122,11 +161,16 @@ class Subscription:
     async def aiter(self, *, heartbeat: bool = True) -> AsyncIterator[dict[str, Any]]:
         """For asyncio callers: ``async for ev in sub.aiter(): ...``.
 
-        Implementation uses ``loop.run_in_executor`` to wait on the blocking
-        ``queue.get`` in an executor thread — a minimal asyncio integration
-        with no extra dependencies.
+        Replay events (if any) are yielded first, then live events drain
+        from the queue via ``loop.run_in_executor``.
         """
         import asyncio
+
+        # Yield buffered replay events first.
+        if self._replay:
+            replay, self._replay = self._replay, []
+            for ev in replay:
+                yield ev
 
         loop = asyncio.get_event_loop()
         get_timeout = self.heartbeat_sec if heartbeat and self.heartbeat_sec > 0 else None
