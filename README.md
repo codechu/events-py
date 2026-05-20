@@ -1,3 +1,13 @@
+```text
+              .    .  c o d e c h u  .    .
+           .   \  |  /  e v e n t s  \  |   .
+        ((((( ── ((•)) ──────────── ((•)) ── )))))
+           '   /  |  \                /  |   '
+              '    '   scan.*   ui.click    '
+```
+
+> *Thread-safe multi-channel pub/sub — emit from anywhere, listen everywhere.*
+
 # codechu-events
 
 Thread-safe multi-channel event bus for Python. Pure stdlib, ~150 LOC.
