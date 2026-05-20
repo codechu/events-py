@@ -104,6 +104,12 @@ async def consume():
 asyncio.run(consume())
 ```
 
+## Documentation
+
+- [API reference](docs/API.md) — every public symbol, glob syntax, heartbeat semantics.
+- [Migration guide](docs/MIGRATION.md) — v0.1 → v0.2 (module-level shims removed).
+- [Recipes](docs/RECIPES.md) — singleton bus, isolated buses, async, backpressure, heartbeat, tests.
+
 ## API reference
 
 ### `Bus`
