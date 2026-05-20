@@ -1,9 +1,16 @@
 ```text
-              .    .  c o d e c h u  .    .
-           .   \  |  /  e v e n t s  \  |   .
-        ((((( ── ((•)) ──────────── ((•)) ── )))))
-           '   /  |  \                /  |   '
-              '    '   scan.*   ui.click    '
+━━━━━━━━━━━ c o d e c h u  ·  e v e n t s ━━━━━━━━━━━
+
+   publishers                                  subscribers
+   ─────────────                              ──────────────
+   scanner ──┐                            ┌── ui.* listener
+             │                            │   (queue 64, drops slow)
+   gtk-thr ──┼─→  Bus  ─→  glob filter  ──┤
+             │       ["scan.*", "ui.*"]   │
+   worker  ──┘                            └── scan.* listener
+                                              (queue 128)
+
+━━━ thread-safe. bounded. publishers never block. ━━━
 ```
 
 [![PyPI](https://img.shields.io/pypi/v/codechu-events.svg)](https://pypi.org/project/codechu-events/)
@@ -18,18 +25,6 @@
 Thread-safe multi-channel event bus for Python. Emit from any
 thread, subscribe with glob patterns, never block a publisher. Pure
 stdlib, ~150 LOC, no module-level state — you own the `Bus()`.
-
-```text
-publishers                                          subscribers
-─────────────                                      ──────────────
-scanner ──┐                                   ┌── ui.* listener
-          │                                   │   (queue depth 64)
-gtk thread├──→ Bus  ─→  glob filter  ─→  ──→ ─┤
-          │             ["scan.*"]            │
-worker  ──┘             ["ui.click"]          └── scan.* listener
-                                                  (queue depth 128)
-            slow consumer drops, never blocks publisher
-```
 
 ## Install
 
